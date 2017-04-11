@@ -1,9 +1,10 @@
 # nppes-elastic
 
-This copy is a clone of tosman's nppes-elastic minus the docker file. It only includes the python script to upload the nppes information to 
-elastic cluster. Tested on python3.
+This copy is a clone of tosman's nppes-elastic (https://github.com/tosman/nppes-elastic) minus the elastic docker files. It only includes the python script to upload the nppes information to elastic cluster. Tested on python in windows. 
 
-#Steps to run nppes elasticsearch python script in windows
+NOTE: nppes-cron.py is not for windows.
+
+#Steps to run nppes python script in windows
 
 #powershell add python to path
 [ENVIRONMENT]::SETENVIRONMENTVARIABLE("PATH", "$ENV:PATH;C:\Users\gsrinivasan\AppData\Local\Programs\Python\Python36-32", "USER")
@@ -16,3 +17,6 @@ python -m pip install -U pip setuptools
 
 #install python pacakages
 pip elasticsearch
+
+#run script
+load_nppes.py
