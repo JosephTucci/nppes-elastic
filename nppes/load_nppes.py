@@ -10,8 +10,7 @@ import zipfile
 import logging
 from functools import reduce
 import io
-
-default_elastic_url = 'http://winevlnstst79.hosted.appsevolenthealth.com:8100'
+import datetime
 
 # move this to somewhere that's easy to change
 nppes_mapping = {
@@ -22,6 +21,7 @@ nppes_mapping = {
     'last_name': 'Provider Last Name (Legal Name)',
     'name_prefix': 'Provider Name Prefix Text',
     'name_suffix': 'Provider Name Suffix Text',
+    'gender_code': 'Provider Gender Code',
     'other_last_name': 'Provider Other Last Name',
     'other_first_name': 'Provider Other First Name',
     'other_middle_name': 'Provider Other Middle Name',
@@ -38,11 +38,12 @@ nppes_mapping = {
     'practice_location_city': 'Provider Business Practice Location Address City Name',
     'practice_location_state': 'Provider Business Practice Location Address State Name',
     'practice_location_postal_code': 'Provider Business Practice Location Address Postal Code',
-    'practice_location_telephone_number': 'Provider Business Practice Location Address Telephone Number',
+    'practice_location_telephone_number': 'Provider Business Practice Location ' \
+                                            'Address Telephone Number',
     'practice_location_fax_number': 'Provider Business Practice Location Address Fax Number',
     'credentials': 'Provider Credential Text',
     'other_credentials': 'Provider Other Credential Text',
-    'orginization_name': 'Provider Organization Name (Legal Business Name)'
+    'organization_name': 'Provider Organization Name (Legal Business Name)'
 }
 
 def load_taxonomy(nucc):
@@ -54,18 +55,31 @@ def load_taxonomy(nucc):
             classification = row['Classification']
             specialization = row['Specialization']
             if code and classification:
-                nucc_dict[code] = classification + " " + specialization
+                if specialization != "":
+                    nucc_dict[code] = classification + " - " + specialization
+                else:
+                    nucc_dict[code] = classification
     return nucc_dict
 
 
 def extract_provider(row, nucc_dict):
     # creates the Lucene "document" to define this provider
     # assumes this is a valid provider
-    provider_document = {}
+    specialties = []
+    for i in range(1, 4):
+        specialty_document = {}
+        specialty_document["code"] = row['Healthcare Provider Taxonomy Code_' + str(i)]
+        specialty_document["description"] = nucc_dict.get(row['Healthcare Provider Taxonomy Code_' + str(i)], '')
+        specialty_document["isprimary"] = nucc_dict.get(row['Healthcare Provider Primary Taxonomy Switch_' + str(i)], 'N')
+        specialties.append(specialty_document)
 
+    provider_document = {}
     for (key, value) in nppes_mapping.items():
         provider_document[key] = row.get(value, '')
-        provider_document['specialities'] = [nucc_dict.get(row['Healthcare Provider Taxonomy Code_1'], ''),	nucc_dict.get(row['Healthcare Provider Taxonomy Code_2'], ''),	nucc_dict.get(row['Healthcare Provider Taxonomy Code_3'], '')]
+
+    provider_document['specialties'] = specialties
+    provider_document['credentials'] = provider_document['credentials'].replace('.', '')
+    provider_document['other_credentials'] = provider_document['credentials']
     return provider_document
 
 def convert_to_json(provider_doc):
@@ -101,7 +115,7 @@ def iter_nppes_data(nppes_file, nucc_dict, convert_to_json):
 					# action instructs the bulk loader how to handle this
 					# record
                     action = {
-                        "_index": "nppes3",
+                        "_index": "nppes1",
                         "_type": "provider",
                         "_id": provider_doc['npi'],
                         "_source": json
@@ -110,7 +124,7 @@ def iter_nppes_data(nppes_file, nucc_dict, convert_to_json):
 
 
 # main code starts here
-def loadFiles(nppes_file, nucc_file):
+def loadFiles(nppes_file, nucc_file):    
     nucc_dict = load_taxonomy(nucc_file)
 
     elastic = Elasticsearch([
@@ -118,17 +132,24 @@ def loadFiles(nppes_file, nucc_file):
     ])
 
     start = time.time()
-    #timeString = time.strftime("%Y%m%d%H%M%S", start)
-    logging.warning("start at", str(start))
-
+    hours, rem = divmod(start, 3600)
+    minutes, seconds = divmod(rem, 60)
+    print("start time:", datetime.datetime.fromtimestamp(start).strftime('%Y-%m-%d %H:%M:%S'))
     # invoke ES bulk loader using the iterator
     helpers.bulk(elastic, iter_nppes_data(nppes_file, nucc_dict, convert_to_json))
+    end_time = time.time()
+    print("end time:", datetime.datetime.fromtimestamp(end_time).strftime('%Y-%m-%d %H:%M:%S'))
+    hours, rem = divmod(end_time-start, 3600)
+    minutes, seconds = divmod(rem, 60)
+    print("total time: {:0>2}:{:0>2}:{:05.2f}".format(int(hours), int(minutes), seconds))
 
-    logging.warning("total time - seconds", time.time() - start)
+    #logging.warning("total time - seconds", time.time() - start)
 
-elasticUrl = input("enter elastic url (defaults to dev url if not provided):")
-if not elasticUrl:
-    elasticUrl = default_elastic_url
+#azure dev cluster
+default_elastic_url = 'http://172.24.42.70:9200/'
+#elasticUrl = input("enter elastic url (defaults to dev url if not provided):")
+#if not elasticUrl:
+elasticUrl = default_elastic_url
 
 #todo: run an automated script to download the file and execute the weekly ingest
 #first time ingest the full file, use zip file
